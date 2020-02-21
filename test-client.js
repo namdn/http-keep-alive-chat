@@ -4,7 +4,7 @@ const port = 3000;
 
 
 async function test() {
-    let client = new Client(`http://localhost:${port}/chat`, { listenTimeOut: 4000 });
+    let client = new Client(`http://localhost:${port}/chat`, { listenTimeOut: 4000, });
     client.on('message', message => {
         console.log('client received message', message);
     });

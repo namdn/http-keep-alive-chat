@@ -13,8 +13,9 @@ const defaultOptions = {
 class Server extends EventEmitter {
 
     /**
-     * create Server constructor
-     * @param {Express} app express application
+     * Create Server constructor
+     * 
+     * @param {Express} app express application or router
      * @param {*} uri 
      * @param {*} options 
      */
@@ -26,19 +27,28 @@ class Server extends EventEmitter {
         this._options = options;
         this._mapQueues = new AsyncQueueMap();
 
-        this._setBodyParseMiddleware(app);
+        this._setBodyParserMiddleware(app);
         app.get(`${uri}/listen/:id`, ...middlewares, (req, res) => this._clientListen(req, res));
         app.post(`${uri}/send/:id`, ...middlewares, (req, res) => this._clientSend(req, res));
 
         this.on('error', () => { });
     }
 
+    /**
+     * get all middleware names of express app
+     * @param {Application} app express application or router
+     */
     _getAllMiddlewareNames(app) {
         let appStack = (app._router && app._router.stack) || app.stack || [];
         return appStack.map(m => m.handle.name || '<anonymous function>')
     }
 
-    _setBodyParseMiddleware(app) {
+    /**
+     * Set body parser middleware for app if need.
+     *  
+     * @param {*} app express application or router
+     */
+    _setBodyParserMiddleware(app) {
         let middlewares = this._getAllMiddlewareNames(app);
 
         if (!middlewares.some(name => name === 'jsonParser'))
@@ -48,6 +58,12 @@ class Server extends EventEmitter {
             app.use(bodyParser.urlencoded({ extended: true }));
     }
 
+    /**
+     * Client send message express-request function
+     * 
+     * @param {*} req 
+     * @param {*} res 
+     */
     _clientSend(req, res) {
         let id = req.params.id;
         let body = (typeof req.body === 'string') ? JSON.parse(req.body) : req.body;
@@ -56,31 +72,32 @@ class Server extends EventEmitter {
         res.send('OK');
     }
 
+    /**
+     * Client listen message express-request function
+     * @param {*} req 
+     * @param {*} res 
+     */
     async _clientListen(req, res) {
+        let id = req.params.id;
+        let listenTimeOut = parseInt(req.query.timeout) || this._options.listenTimeOut;
+        let packages = await this._mapQueues.pop(id, listenTimeOut);
+        let messages = packages.map(({ message }) => message);
+
         try {
-            let id = req.params.id;
-            let listenTimeOut = parseInt(req.query.timeout) || this._options.listenTimeOut;
-            let packages = await this._mapQueues.pop(id, listenTimeOut);
-            let messages = packages.map(({ message }) => message);
+            res.send({ data: { messages } });
+            packages.forEach(({ message, resolve }) =>
+                this.emit('sent', message, id) && resolve())
 
-            try {
-                res.send({ data: { messages } });
-                packages.forEach(({ message, resolve }) =>
-                    this.emit('sent', message, id) && resolve())
-
-            } catch (err) {
-                if (this._options.retry) {
-                    this._mapQueues.pushBack(packages);
-                    this.emit('retry', packages);
-                } else {
-                    err.packages = packages;
-                    this.emit('error', err);
-                }
-                if (this._options.rejectWhenError)
-                    packages.forEach(({ reject }) => reject(err));
-            }
         } catch (err) {
-            console.error(err);
+            if (this._options.retry) {
+                this._mapQueues.pushBack(packages);
+                this.emit('retry', packages);
+            } else {
+                err.packages = packages;
+                this.emit('error', err);
+            }
+            if (this._options.rejectWhenError)
+                packages.forEach(({ reject }) => reject(err));
         }
     }
 
@@ -92,18 +109,18 @@ class Server extends EventEmitter {
      */
     send(id, message) {
         return new Promise((resolve, reject) => {
-            if(!id ){
+            if (!id) {
                 let err = new Error(`'id' is invalid`)
                 reject(err);
                 this.emit('error', err);
             }
 
-            if(!message ){
+            if (!message) {
                 let err = new Error(`'message' is invalid`)
                 reject(err);
                 this.emit('error', err);
             }
-            
+
             this._mapQueues.push(id, { message, resolve, reject });
         })
     }
