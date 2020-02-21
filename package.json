@@ -1,6 +1,6 @@
 {
   "name": "http-keep-alive-chat",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "chat package using http keep-alive",
   "main": "index.js",
   "scripts": {

@@ -8,17 +8,20 @@ const defaultOptions = {
         'Content-Type': 'application/json'
     },
     liveWhenError: true,
+    delayWhenDisconnected:200
 }
 
 class Client extends EventEmitter {
     constructor(uri, options = {}) {
         super();
         options = { ...defaultOptions, ...options };
-        let { listenTimeOut, liveWhenError, ...axiosOptions } = options;
+        let { listenTimeOut, liveWhenError, delayWhenDisconnected,...axiosOptions } = options;
         this.uri = uri;
 
         this.listenTimeOut = listenTimeOut;
         this.liveWhenError = liveWhenError;
+        this.delayWhenDisconnected = delayWhenDisconnected;
+        
         this.id = options.id || this.generatorId();
         this.sendUri = `${this.uri}/send/${this.id}`;
         this.receiveUri = `${this.uri}/listen/${this.id}?timeout=${this.listenTimeOut}`;
@@ -32,15 +35,22 @@ class Client extends EventEmitter {
         // console.log("TCL: Client -> constructor -> axios", this.axios)    
     };
 
+    _delay(millis) {
+        return new Promise(res=>setTimeout(res, millis));
+    }
+
     async loopReceive() {
         while (true) {
-            console.log('client listening at', this.receiveUri);
-            await this.axios.get(this.receiveUri)
-                .then(res => res.data.data.messages || [])
-                .then(messages => messages && messages.forEach(
-                    message => this.emit('message', message)
-                ))
-                .catch(err => this.emit('error', err))
+            try {
+                await this.axios.get(this.receiveUri)
+                    .then(res => res.data.data.messages || [])
+                    .then(messages => messages && messages.forEach(
+                        message => this.emit('message', message)
+                    ))
+            } catch (err) {
+                this.emit('error', err);
+                await this._delay(this.delayWhenDisconnected);
+            }
         }
     }
 
